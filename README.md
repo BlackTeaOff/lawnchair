@@ -1,3 +1,27 @@
+# 所有APP听令！全员保持Q弹
+> 昨日一去不复回~开心比什么都贵~
+> 
+> 人生几十年....
+> 
+> 本项目基于开源启动器 **Lawnchair 16** 魔改。
+
+### 使用方法
+1. 在 Release 下载安装包
+2. 安装后直接打开软件, 或设置为默认桌面
+
+在桌面页返回, 弹出控制台
+
+可开关弹性动画, 歌曲播放和背景视频。
+
+> Powered By Gemini.
+>
+> 桌面: Lawnchair 16
+> 
+> 音乐: 活跃黑江乐
+
+---
+*(以下为 Lawnchair 原版官方文档)*
+
 # Lawnchair 16
 
 [![Build debug APK](https://github.com/LawnchairLauncher/lawnchair/actions/workflows/ci.yml/badge.svg)](https://github.com/LawnchairLauncher/lawnchair/actions/workflows/ci.yml)

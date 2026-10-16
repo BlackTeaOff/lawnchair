@@ -227,7 +227,7 @@ android {
 
         debug {
             applicationIdSuffix ".debug"
-            resValue("string", "derived_app_name", "Lawnchair (Debug)")
+            resValue("string", "derived_app_name", "所有APP保持Q弹")
 
             manifestPlaceholders.quickstepMinSdk = "0"
             manifestPlaceholders.quickstepMaxSdk = "100000"
@@ -236,7 +236,7 @@ android {
         }
 
         release {
-            resValue("string", "derived_app_name", "Lawnchair")
+            resValue("string", "derived_app_name", "所有APP保持Q弹")
             minifyEnabled true
             shrinkResources true
             pseudoLocalesEnabled false
@@ -496,8 +496,8 @@ dependencies {
 
     implementation libs.androidx.exifinterface
 
-    debugImplementation libs.leakcanary.android
-    debugImplementation libs.leakcanary.androidstudio
+    // debugImplementation libs.leakcanary.android
+    // debugImplementation libs.leakcanary.androidstudio
 }
 
 ksp {

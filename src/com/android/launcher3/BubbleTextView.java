@@ -1645,4 +1645,89 @@ public class BubbleTextView extends TextView implements ItemInfoUpdateReceiver,
     public boolean canShowLongPressPopup() {
         return getTag() instanceof ItemInfo && ShortcutUtil.supportsShortcuts((ItemInfo) getTag());
     }
+
+    // ================= 所有人听令：保持Q弹核心挂载与算法 =================
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        startKeepBouncyAnimation();
+
+        // 监听滑块改动，一旦在设置里拖动滑块，图标立刻重新对齐新节拍！
+        BouncyConfig.addListener(new Runnable() {
+            @Override
+            public void run() {
+                post(new Runnable() {
+                    @Override
+                    public void run() {
+                        startKeepBouncyAnimation();
+                    }
+                });
+            }
+        });
+    }
+
+    private android.animation.ObjectAnimator mBouncyAnimator;
+    
+    // ================= 所有人听令：保持Q弹 4.0 丝滑果冻缓动版 =================
+    private void startKeepBouncyAnimation() {
+        // 【关键修复】：先把旧动画彻底掐死并清空！
+        if (mBouncyAnimator != null) {
+            mBouncyAnimator.cancel();
+            mBouncyAnimator = null;
+        }
+
+        // 如果设置里关掉了 Q 弹，彻底停在原位，恢复 1.0 尺寸
+        if (!BouncyConfig.sBouncyEnabled) {
+            setScaleX(1.0f);
+            setScaleY(1.0f);
+            return;
+        }
+
+        this.post(new Runnable() {
+            @Override
+            public void run() {
+                setPivotX(getWidth() / 2.0f);
+                setPivotY((float) getHeight());
+            }
+        });
+
+        if (mBouncyAnimator != null) {
+            mBouncyAnimator.cancel();
+        }
+
+        // 保持你最满意的 4.0 绝妙果冻缓动曲线不变！
+        android.view.animation.Interpolator jellyInterpolator =
+            new android.view.animation.PathInterpolator(0.75f, 0.0f, 0.25f, 1.0f);
+
+        android.animation.Keyframe kx0 = android.animation.Keyframe.ofFloat(0.0f, 1.35f);
+        android.animation.Keyframe kx1 = android.animation.Keyframe.ofFloat(0.5f, 0.80f);
+        kx1.setInterpolator(jellyInterpolator);
+        android.animation.Keyframe kx2 = android.animation.Keyframe.ofFloat(1.0f, 1.35f);
+        kx2.setInterpolator(jellyInterpolator);
+
+        android.animation.Keyframe ky0 = android.animation.Keyframe.ofFloat(0.0f, 0.65f);
+        android.animation.Keyframe ky1 = android.animation.Keyframe.ofFloat(0.5f, 1.25f);
+        ky1.setInterpolator(jellyInterpolator);
+        android.animation.Keyframe ky2 = android.animation.Keyframe.ofFloat(1.0f, 0.65f);
+        ky2.setInterpolator(jellyInterpolator);
+
+        android.animation.PropertyValuesHolder pvhScaleX =
+            android.animation.PropertyValuesHolder.ofKeyframe("scaleX", kx0, kx1, kx2);
+        android.animation.PropertyValuesHolder pvhScaleY =
+            android.animation.PropertyValuesHolder.ofKeyframe("scaleY", ky0, ky1, ky2);
+
+        mBouncyAnimator = android.animation.ObjectAnimator.ofPropertyValuesHolder(this, pvhScaleX, pvhScaleY);
+
+        // 【动态读取滑块设置的时长！】
+        long duration = BouncyConfig.sDuration;
+        mBouncyAnimator.setDuration(duration);
+        mBouncyAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        mBouncyAnimator.setRepeatMode(android.animation.ValueAnimator.RESTART);
+        mBouncyAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
+
+        mBouncyAnimator.start();
+
+        long currentOffset = android.os.SystemClock.uptimeMillis() % duration;
+        mBouncyAnimator.setCurrentPlayTime(currentOffset);
+    }
 }

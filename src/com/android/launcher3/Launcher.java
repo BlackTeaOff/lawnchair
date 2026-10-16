@@ -437,6 +437,9 @@ public class Launcher extends StatefulActivity<LauncherState>
         return fromContext(context);
     }
 
+    private android.view.TextureView mBackgroundTextureView;
+    private android.media.MediaPlayer mVideoMediaPlayer;
+    
     @Override
     @TargetApi(Build.VERSION_CODES.S)
     protected void onCreate(Bundle savedInstanceState) {
@@ -447,6 +450,46 @@ public class Launcher extends StatefulActivity<LauncherState>
         mStartupLatencyLogger.logStart(LAUNCHER_LATENCY_STARTUP_ACTIVITY_ON_CREATE);
 
         super.onCreate(savedInstanceState);
+        BouncyConfig.init(this);
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                new android.window.OnBackInvokedCallback() {
+                    @Override
+                    public void onBackInvoked() {
+                        // 1. 如果有打开的文件夹、快捷菜单等弹窗，返回键优先关掉它们！
+                        AbstractFloatingView topOpenView = AbstractFloatingView.getTopOpenView(Launcher.this);
+                        if (topOpenView != null) {
+                            topOpenView.close(true);
+                            return;
+                        }
+
+                        // 2. 如果当前在上滑抽屉（所有应用页面），返回键退回桌面主页！
+                        if (!isInState(LauncherState.NORMAL)) {
+                            getStateManager().goToState(LauncherState.NORMAL);
+                            return;
+                        }
+
+                        // 3. 只有已经在桌面最外层时，按返回才唤醒设置弹窗！
+                        BouncyConfig.showSettingsDialog(Launcher.this);
+                    }
+                }
+            );
+        }
+        updateVideoBackgroundState();
+        // 监听设置改动，一旦弹窗里勾选/取消勾选，视频立刻显示/隐藏！
+        BouncyConfig.addListener(new Runnable() {
+            @Override
+            public void run() {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        updateVideoBackgroundState();
+                    }
+                });
+            }
+        });
+        
         mWallpaperThemeManager = new WallpaperThemeManager(this);
 
         LauncherAppState app = LauncherAppState.getInstance(this);
@@ -1233,6 +1276,11 @@ public class Launcher extends StatefulActivity<LauncherState>
     protected void onResume() {
         TraceHelper.INSTANCE.beginSection(ON_RESUME_EVT);
         super.onResume();
+        BouncyConfig.onResume(this); // 放歌
+
+        if (mVideoMediaPlayer != null && BouncyConfig.sVideoEnabled) {
+            mVideoMediaPlayer.start();
+        }
 
         if (mDeferOverlayCallbacks) {
             scheduleDeferredCheck();
@@ -1244,12 +1292,32 @@ public class Launcher extends StatefulActivity<LauncherState>
         TraceHelper.INSTANCE.endSection();
     }
 
+    public void updateVideoBackgroundState() {
+        if (mBackgroundTextureView == null) return;
+        if (BouncyConfig.sVideoEnabled) {
+            mBackgroundTextureView.setVisibility(android.view.View.VISIBLE);
+            if (mVideoMediaPlayer != null && !mVideoMediaPlayer.isPlaying()) {
+                mVideoMediaPlayer.start();
+            }
+        } else {
+            if (mVideoMediaPlayer != null && mVideoMediaPlayer.isPlaying()) {
+                mVideoMediaPlayer.pause();
+            }
+            mBackgroundTextureView.setVisibility(android.view.View.GONE); // 隐藏后立刻露出系统壁纸！
+        }
+    }
+    
     @Override
     protected void onPause() {
         // Ensure that items added to Launcher are queued until Launcher returns
         ItemInstallQueue.INSTANCE.get(this).pauseModelPush(FLAG_ACTIVITY_PAUSED);
 
         super.onPause();
+        BouncyConfig.onPause(); // 停歌
+        if (mVideoMediaPlayer != null && mVideoMediaPlayer.isPlaying()) {
+            mVideoMediaPlayer.pause();
+        }
+        
         mDragController.cancelDrag();
         mLastTouchUpTime = -1;
         mDropTargetBar.animateToVisibility(false);
@@ -1369,6 +1437,99 @@ public class Launcher extends StatefulActivity<LauncherState>
                 this, R.attr.isWorkspaceDarkText) ? Color.BLACK : Color.WHITE);
 
         mDepthBlurTargets = List.of(mWorkspace, mHotseat);
+        
+        // ================= 强制覆盖系统壁纸：TextureView 循环视频 =================
+        try {
+            mBackgroundTextureView = new android.view.TextureView(this);
+            mBackgroundTextureView.setSurfaceTextureListener(new android.view.TextureView.SurfaceTextureListener() {
+                @Override
+                public void onSurfaceTextureAvailable(android.graphics.SurfaceTexture surfaceTexture, int width, int height) {
+                    android.view.Surface surface = new android.view.Surface(surfaceTexture);
+                    try {
+                        if (mVideoMediaPlayer != null) {
+                            mVideoMediaPlayer.release();
+                        }
+                        mVideoMediaPlayer = new android.media.MediaPlayer();
+                        android.net.Uri uri = android.net.Uri.parse("android.resource://" + getPackageName() + "/" + R.raw.video);
+                        mVideoMediaPlayer.setDataSource(Launcher.this, uri);
+                        mVideoMediaPlayer.setSurface(surface);
+                        mVideoMediaPlayer.setLooping(true);
+                        mVideoMediaPlayer.setVolume(0f, 0f);
+
+                        // 【关键新增 1】：监听视频宽高，自动做 CenterCrop 铺满全屏！
+                        mVideoMediaPlayer.setOnVideoSizeChangedListener(new android.media.MediaPlayer.OnVideoSizeChangedListener() {
+                            @Override
+                            public void onVideoSizeChanged(android.media.MediaPlayer mp, int videoWidth, int videoHeight) {
+                                if (videoWidth > 0 && videoHeight > 0) {
+                                    adjustTextureViewSize(mBackgroundTextureView, width, height, videoWidth, videoHeight);
+                                }
+                            }
+                        });
+
+                        mVideoMediaPlayer.setOnPreparedListener(new android.media.MediaPlayer.OnPreparedListener() {
+                            @Override
+                            public void onPrepared(android.media.MediaPlayer mp) {
+                                if (BouncyConfig.sVideoEnabled) {
+                                    mp.start();
+                                }
+                            }
+                        });
+                        mVideoMediaPlayer.prepareAsync();
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                // 强制居中裁切铺满全屏算法（彻底消灭黑边）
+                private void adjustTextureViewSize(android.view.TextureView textureView, int viewWidth, int viewHeight, int videoWidth, int videoHeight) {
+                    float sx = 1.0f;
+                    float sy = 1.0f;
+                    float viewRatio = (float) viewWidth / (float) viewHeight;
+                    float videoRatio = (float) videoWidth / (float) videoHeight;
+
+                    if (viewRatio > videoRatio) {
+                        sy = (viewRatio / videoRatio);
+                    } else {
+                        sx = (videoRatio / viewRatio);
+                    }
+
+                    android.graphics.Matrix matrix = new android.graphics.Matrix();
+                    matrix.setScale(sx, sy, viewWidth / 2.0f, viewHeight / 2.0f);
+                    textureView.setTransform(matrix);
+                }
+                
+                @Override
+                public void onSurfaceTextureSizeChanged(android.graphics.SurfaceTexture surface, int width, int height) {}
+
+                @Override
+                public boolean onSurfaceTextureDestroyed(android.graphics.SurfaceTexture surface) {
+                    if (mVideoMediaPlayer != null) {
+                        mVideoMediaPlayer.release();
+                        mVideoMediaPlayer = null;
+                    }
+                    return true;
+                }
+
+                @Override
+                public void onSurfaceTextureUpdated(android.graphics.SurfaceTexture surface) {}
+            });
+
+            // 禁止点击，让触摸事件正常穿透给桌面图标
+            mBackgroundTextureView.setClickable(false);
+            mBackgroundTextureView.setFocusable(false);
+
+            // 塞进桌面最底层，严严实实盖住系统壁纸！
+            if (mDragLayer != null) {
+                mDragLayer.addView(mBackgroundTextureView, 0,
+                    new android.widget.FrameLayout.LayoutParams(
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+                );
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -2106,6 +2267,7 @@ public class Launcher extends StatefulActivity<LauncherState>
     @Override
     @TargetApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     public void onBackPressed() {
+        BouncyConfig.showSettingsDialog(this);
         getOnBackAnimationCallback().onBackInvoked();
     }
 

@@ -16,9 +16,7 @@
      Modifications copyright 2021, Lawnchair
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background>
-        <bitmap android:src="@mipmap/ic_launcher_home_background" />
-    </background>
+    <background android:drawable="@android:color/white" />
     <foreground>
         <bitmap android:src="@mipmap/ic_launcher_home_foreground"/>
     </foreground>
